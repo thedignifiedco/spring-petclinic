@@ -1,0 +1,380 @@
+name: Secure CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+env:
+  JAVA_VERSION: '17'
+  MAVEN_VERSION: '3.9.6'
+  DOCKER_IMAGE: 'spring-petclinic'
+  REGISTRY: 'ghcr.io'
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  dependency-check:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'Spring PetClinic'
+          path: '.'
+          format: 'SARIF'
+          out: 'dependency-check-report.sarif'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+            --suppression suppression.xml
+
+      - name: Upload dependency check results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'dependency-check-report.sarif'
+
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: [security-scan, dependency-check]
+    strategy:
+      matrix:
+        java: ['17', '21']
+        database: ['h2', 'mysql', 'postgres']
+    
+    services:
+      mysql:
+        image: mysql:9.2
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: petclinic
+          MYSQL_USER: petclinic
+          MYSQL_PASSWORD: petclinic
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+      
+      postgres:
+        image: postgres:17.5
+        env:
+          POSTGRES_PASSWORD: petclinic
+          POSTGRES_USER: petclinic
+          POSTGRES_DB: petclinic
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Validate Maven POM
+        run: ./mvnw validate
+
+      - name: Compile code
+        run: ./mvnw compile -q
+
+      - name: Run Checkstyle
+        run: ./mvnw checkstyle:check
+
+      - name: Run tests with ${{ matrix.database }}
+        run: |
+          if [ "${{ matrix.database }}" = "h2" ]; then
+            ./mvnw test -Dspring.profiles.active=default
+          elif [ "${{ matrix.database }}" = "mysql" ]; then
+            ./mvnw test -Dspring.profiles.active=mysql
+          elif [ "${{ matrix.database }}" = "postgres" ]; then
+            ./mvnw test -Dspring.profiles.active=postgres
+          fi
+
+      - name: Generate JaCoCo coverage report
+        run: ./mvnw jacoco:report
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./target/site/jacoco/jacoco.xml
+          flags: ${{ matrix.database }}-${{ matrix.java }}
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Generate SBOM
+        run: ./mvnw cyclonedx:makeAggregateBom
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.database }}-${{ matrix.java }}
+          path: target/cyclonedx.xml
+
+      - name: Package application
+        run: ./mvnw package -DskipTests
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar-${{ matrix.database }}-${{ matrix.java }}
+          path: target/*.jar
+
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: jar-h2-17
+          path: target/
+
+      - name: Check test coverage threshold
+        run: |
+          COVERAGE=$(grep -o 'Total.*[0-9]\+\.[0-9]\+%' target/site/jacoco/jacoco.xml | grep -o '[0-9]\+\.[0-9]\+%' | sed 's/%//')
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "Test coverage $COVERAGE% is below threshold of 80%"
+            exit 1
+          fi
+          echo "Test coverage $COVERAGE% meets threshold"
+
+      - name: Check for critical security vulnerabilities
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            CRITICAL_COUNT=$(grep -c '"level": "error"' trivy-results.sarif || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "Found $CRITICAL_COUNT critical security vulnerabilities"
+              exit 1
+            fi
+          fi
+
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [build-and-test, quality-gates]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            JAVA_VERSION=${{ env.JAVA_VERSION }}
+
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+
+      - name: Upload Docker scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: [build-and-test, quality-gates]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/maven@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  compliance-check:
+    name: Compliance and Audit
+    runs-on: ubuntu-latest
+    needs: [build-and-test, quality-gates]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Generate compliance report
+        run: |
+          echo "=== COMPLIANCE REPORT ===" > compliance-report.txt
+          echo "Build Date: $(date)" >> compliance-report.txt
+          echo "Repository: ${{ github.repository }}" >> compliance-report.txt
+          echo "Commit: ${{ github.sha }}" >> compliance-report.txt
+          echo "Branch: ${{ github.ref_name }}" >> compliance-report.txt
+          echo "" >> compliance-report.txt
+          
+          echo "=== DEPENDENCIES ===" >> compliance-report.txt
+          ./mvnw dependency:tree >> compliance-report.txt 2>&1 || echo "Dependency tree generation failed" >> compliance-report.txt
+          
+          echo "" >> compliance-report.txt
+          echo "=== LICENSE COMPLIANCE ===" >> compliance-report.txt
+          ./mvnw license:add-third-party >> compliance-report.txt 2>&1 || echo "License check failed" >> compliance-report.txt
+
+      - name: Upload compliance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report
+          path: compliance-report.txt
+
+      - name: Check license compliance
+        run: |
+          if grep -i "GPL\|AGPL" compliance-report.txt; then
+            echo "Found potentially restrictive licenses"
+            exit 1
+          fi
+          echo "License compliance check passed"
+
+  final-status:
+    name: Final Status
+    runs-on: ubuntu-latest
+    needs: [build-and-test, quality-gates, docker-build, security-audit, compliance-check]
+    if: always()
+    steps:
+      - name: Check job statuses
+        run: |
+          if [[ "${{ needs.build-and-test.result }}" == "success" && 
+                "${{ needs.quality-gates.result }}" == "success" && 
+                "${{ needs.docker-build.result }}" == "success" && 
+                "${{ needs.security-audit.result }}" == "success" && 
+                "${{ needs.compliance-check.result }}" == "success" ]]; then
+            echo "✅ All CI pipeline stages completed successfully"
+            exit 0
+          else
+            echo "❌ Some CI pipeline stages failed"
+            echo "Build and Test: ${{ needs.build-and-test.result }}"
+            echo "Quality Gates: ${{ needs.quality-gates.result }}"
+            echo "Docker Build: ${{ needs.docker-build.result }}"
+            echo "Security Audit: ${{ needs.security-audit.result }}"
+            echo "Compliance Check: ${{ needs.compliance-check.result }}"
+            exit 1
+          fi

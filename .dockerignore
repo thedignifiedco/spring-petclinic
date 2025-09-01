@@ -1,0 +1,89 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.idea
+.vscode
+*.iml
+*.iws
+*.ipr
+
+# Build artifacts
+target/
+build/
+out/
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Maven wrapper (will be copied separately)
+.mvn/wrapper/maven-wrapper.jar
+
+# Test files
+src/test/
+**/test/
+**/tests/
+
+# Documentation
+README.md
+*.md
+docs/
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+.travis.yml
+
+# Environment files
+.env
+.env.local
+.env.production
+application-*.properties
+!application.properties
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Kubernetes files
+k8s/
+*.yml
+*.yaml
+
+# Security and compliance
+suppression.xml
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
