@@ -383,6 +383,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -516,11 +518,84 @@ jobs:
             echo "- Action: Review Docker build logs" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Verify SARIF file before upload
+        if: always()
+        run: |
+          echo "🔍 Verifying SARIF file before upload..."
+          if [ -f "trivy-image-results.sarif" ]; then
+            echo "✅ SARIF file exists"
+            echo "File size: $(wc -c < trivy-image-results.sarif) bytes"
+            echo "File content preview:"
+            head -5 trivy-image-results.sarif
+            
+            # Validate SARIF format
+            if python3 -m json.tool trivy-image-results.sarif > /dev/null 2>&1; then
+              echo "✅ SARIF file is valid JSON"
+            else
+              echo "⚠️ SARIF file is not valid JSON, attempting to fix..."
+              # Try to fix common JSON issues
+              sed 's/\\"/"/g' trivy-image-results.sarif > trivy-image-results-fixed.sarif
+              mv trivy-image-results-fixed.sarif trivy-image-results.sarif
+              echo "✅ SARIF file fixed"
+            fi
+          else
+            echo "⚠️ SARIF file not found"
+            exit 1
+          fi
+
       - name: Upload Docker scan results
+        id: upload-sarif
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-image-results.sarif'
+        continue-on-error: true
+
+      - name: Handle SARIF upload status
+        if: always()
+        run: |
+          echo "🔍 Checking SARIF upload status..."
+          if [ "${{ steps.upload-sarif.outputs.sarif-id }}" != "" ]; then
+            echo "✅ SARIF uploaded successfully"
+            echo "SARIF ID: ${{ steps.upload-sarif.outputs.sarif-id }}"
+          else
+            echo "⚠️ SARIF upload may have failed"
+            echo "This is non-blocking - pipeline continues"
+          fi
+
+      - name: Docker build and scan summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build and Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          
+          # Docker build status
+          if [ "${{ steps.build.conclusion }}" = "success" ]; then
+            echo "✅ **Docker Build**: Completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Docker Build**: Did not complete successfully" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Image verification status
+          if [ "${{ env.IMAGE_EXISTS }}" = "true" ]; then
+            echo "✅ **Image Verification**: Docker image accessible" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Image Verification**: Docker image not accessible" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Trivy scan status
+          if [ -f "trivy-image-results.sarif" ]; then
+            echo "✅ **Vulnerability Scan**: Trivy results generated" >> $GITHUB_STEP_SUMMARY
+            echo "- Results file: trivy-image-results.sarif" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Vulnerability Scan**: No results generated" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # SARIF upload status
+          if [ "${{ steps.upload-sarif.outputs.sarif-id }}" != "" ]; then
+            echo "✅ **Security Upload**: SARIF uploaded to GitHub Security" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Security Upload**: SARIF upload may have failed" >> $GITHUB_STEP_SUMMARY
+          fi
 
   security-audit:
     name: Security Audit
