@@ -1,12 +1,14 @@
 # Multi-stage build for Spring PetClinic
 FROM eclipse-temurin:17-jdk AS builder
 
-# Install necessary packages
-RUN apk add --no-cache curl
+# Install necessary packages for Ubuntu-based image
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN groupadd -g 1001 appgroup && \
+    useradd -u 1001 -g appgroup -s /bin/bash appuser
 
 # Set working directory
 WORKDIR /app
@@ -29,15 +31,16 @@ RUN ./mvnw clean package -DskipTests && \
 # Runtime stage
 FROM eclipse-temurin:17-jre
 
-# Install security updates and necessary packages
-RUN apk add --no-cache --update \
+# Install security updates and necessary packages for Ubuntu-based image
+RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     tzdata \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN groupadd -g 1001 appgroup && \
+    useradd -u 1001 -g appgroup -s /bin/bash appuser
 
 # Set working directory
 WORKDIR /app
