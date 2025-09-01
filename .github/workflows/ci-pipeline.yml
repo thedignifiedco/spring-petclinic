@@ -402,6 +402,7 @@ jobs:
       - name: Test Docker build locally
         run: |
           echo "🧪 Testing Docker build locally..."
+          echo "Testing build for current platform..."
           if docker build --no-cache -t test-petclinic .; then
             echo "✅ Local Docker build successful"
             docker rmi test-petclinic
@@ -433,7 +434,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -441,7 +442,6 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             JAVA_VERSION=${{ env.JAVA_VERSION }}
-        continue-on-error: true
 
       - name: Check Docker build status
         if: always()
@@ -449,42 +449,107 @@ jobs:
           echo "🔍 Checking Docker build status..."
           
           # Check if the build step completed successfully
-          if [ "${{ job.status }}" = "success" ] || [ "${{ steps.build.conclusion }}" = "success" ]; then
-            echo "✅ Docker build appears to have completed"
+          if [ "${{ steps.build.conclusion }}" = "success" ]; then
+            echo "✅ Docker build step completed successfully"
             
             # Try to get image info
             if [ -n "${{ steps.build.outputs.digest }}" ]; then
               echo "Image digest: ${{ steps.build.outputs.digest }}"
+              echo "BUILD_DIGEST=${{ steps.build.outputs.digest }}" >> $GITHUB_ENV
             else
-              echo "No digest available, but build step succeeded"
+              echo "⚠️ No digest available from build step"
+            fi
+            
+            # Check for image tags
+            if [ -n "${{ steps.build.outputs.imageid }}" ]; then
+              echo "Image ID: ${{ steps.build.outputs.imageid }}"
+              echo "BUILD_IMAGEID=${{ steps.build.outputs.imageid }}" >> $GITHUB_ENV
             fi
           else
-            echo "⚠️ Docker build step did not complete successfully"
+            echo "❌ Docker build step failed"
             echo "Build conclusion: ${{ steps.build.conclusion }}"
-            echo "Continuing with pipeline..."
+            echo "This job should fail if Docker build fails"
+            exit 1
           fi
 
       - name: Verify Docker image exists
         if: always()
         run: |
           echo "🔍 Verifying Docker image availability..."
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          echo "Checking image: $IMAGE_REF"
           
-          # Try to pull the image to verify it exists
-          if docker pull "$IMAGE_REF" > /dev/null 2>&1; then
-            echo "✅ Docker image found and accessible"
-            echo "IMAGE_EXISTS=true" >> $GITHUB_ENV
+          # Check multiple possible image references
+          SHA_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          MAIN_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          
+          echo "Checking SHA tag: $SHA_TAG"
+          echo "Checking main tag: $MAIN_TAG"
+          echo "Checking latest tag: $LATEST_TAG"
+          
+          IMAGE_EXISTS=false
+          IMAGE_REF=""
+          
+          # Try to pull the SHA-tagged image first
+          if docker pull "$SHA_TAG" > /dev/null 2>&1; then
+            echo "✅ Docker image found with SHA tag: $SHA_TAG"
+            IMAGE_EXISTS=true
+            IMAGE_REF="$SHA_TAG"
+          elif docker pull "$MAIN_TAG" > /dev/null 2>&1; then
+            echo "✅ Docker image found with main tag: $MAIN_TAG"
+            IMAGE_EXISTS=true
+            IMAGE_REF="$MAIN_TAG"
+          elif docker pull "$LATEST_TAG" > /dev/null 2>&1; then
+            echo "✅ Docker image found with latest tag: $LATEST_TAG"
+            IMAGE_EXISTS=true
+            IMAGE_REF="$LATEST_TAG"
           else
-            echo "⚠️ Docker image not found or not accessible"
-            echo "IMAGE_EXISTS=false" >> $GITHUB_ENV
+            echo "❌ Docker image not found with any tag"
+            echo "This indicates the build may have failed silently"
+          fi
+          
+          echo "IMAGE_EXISTS=$IMAGE_EXISTS" >> $GITHUB_ENV
+          echo "IMAGE_REF=$IMAGE_REF" >> $GITHUB_ENV
+          
+          # If image exists, show its details
+          if [ "$IMAGE_EXISTS" = "true" ]; then
+            echo "🔍 Image details:"
+            docker images "$IMAGE_REF" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+            
+                      # Check multi-platform support
+          echo "🔍 Checking multi-platform support..."
+          if docker buildx imagetools inspect "$IMAGE_REF" > /dev/null 2>&1; then
+            echo "✅ Multi-platform image available"
+            echo "Available platforms:"
+            docker buildx imagetools inspect "$IMAGE_REF" --format "{{.Manifests[].Platform}}"
+            
+            # Test pulling for different platforms
+            echo "🧪 Testing platform compatibility..."
+            if docker pull --platform linux/amd64 "$IMAGE_REF" > /dev/null 2>&1; then
+              echo "✅ linux/amd64 platform pull successful"
+            else
+              echo "⚠️ linux/amd64 platform pull failed"
+            fi
+            
+            if docker pull --platform linux/arm64 "$IMAGE_REF" > /dev/null 2>&1; then
+              echo "✅ linux/arm64 platform pull successful"
+            else
+              echo "⚠️ linux/arm64 platform pull failed"
+            fi
+          else
+            echo "⚠️ Multi-platform inspection not available"
+          fi
+          
+          # Check registry using GitHub CLI if available
+          if command -v gh > /dev/null 2>&1; then
+            echo "🔍 Checking GitHub Container Registry..."
+            gh api repos/thedignifiedco/spring-petclinic/packages || echo "GitHub CLI not authenticated or package not found"
           fi
 
       - name: Scan Docker image for vulnerabilities
         if: always() && env.IMAGE_EXISTS == 'true'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ env.IMAGE_REF }}
           format: 'sarif'
           output: 'trivy-image-results.sarif'
         continue-on-error: true
@@ -508,15 +573,44 @@ jobs:
         if: always()
         run: |
           echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.build.outputs.digest }}" != "" ]; then
-            echo "✅ **Docker build completed successfully**" >> $GITHUB_STEP_SUMMARY
-            echo "- Image digest: ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
-            echo "- Status: Ready for deployment" >> $GITHUB_STEP_SUMMARY
+          
+          # Build step status
+          if [ "${{ steps.build.conclusion }}" = "success" ]; then
+            echo "✅ **Build Step**: Completed successfully" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -n "${{ steps.build.outputs.digest }}" ]; then
+              echo "- **Image Digest**: ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ -n "${{ steps.build.outputs.imageid }}" ]; then
+              echo "- **Image ID**: ${{ steps.build.outputs.imageid }}" >> $GITHUB_STEP_SUMMARY
+            fi
           else
-            echo "⚠️ **Docker build failed or was skipped**" >> $GITHUB_STEP_SUMMARY
-            echo "- Status: Build did not complete" >> $GITHUB_STEP_SUMMARY
-            echo "- Action: Review Docker build logs" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **Build Step**: Failed" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: Build step did not complete successfully" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          # Image verification status
+          if [ "${{ env.IMAGE_EXISTS }}" = "true" ]; then
+            echo "✅ **Image Verification**: Docker image accessible" >> $GITHUB_STEP_SUMMARY
+            echo "- **Image Reference**: ${{ env.IMAGE_REF }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: Ready for deployment and scanning" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Image Verification**: Docker image not accessible" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: Build may have failed silently" >> $GITHUB_STEP_SUMMARY
+            echo "- **Action**: Review Docker build logs and registry access" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Registry information
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry**: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Name**: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit SHA**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          
+          # Check registry directly
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry Check**: Visit [GitHub Packages](https://github.com/thedignifiedco/spring-petclinic/packages) to verify" >> $GITHUB_STEP_SUMMARY
 
       - name: Verify SARIF file before upload
         if: always()
