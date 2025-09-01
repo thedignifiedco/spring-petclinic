@@ -1,5 +1,5 @@
 # Multi-stage build for Spring PetClinic
-FROM eclipse-temurin:17-jdk-alpine AS builder
+FROM eclipse-temurin:17-jdk AS builder
 
 # Install necessary packages
 RUN apk add --no-cache curl
@@ -27,7 +27,7 @@ RUN ./mvnw clean package -DskipTests && \
     ./mvnw dependency:copy-dependencies -DincludeScope=runtime
 
 # Runtime stage
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
 
 # Install security updates and necessary packages
 RUN apk add --no-cache --update \
