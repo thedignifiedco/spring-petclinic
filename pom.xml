@@ -261,6 +261,48 @@
         </executions>
       </plugin>
 
+      <!-- OWASP Dependency Check for security vulnerability scanning -->
+      <plugin>
+        <groupId>org.owasp</groupId>
+        <artifactId>dependency-check-maven</artifactId>
+        <version>8.4.3</version>
+        <configuration>
+          <formats>
+            <format>SARIF</format>
+            <format>HTML</format>
+          </formats>
+          <outputDirectory>${project.build.directory}</outputDirectory>
+          <failOnCVSS>7</failOnCVSS>
+          <enableRetired>true</enableRetired>
+          <suppressionFiles>
+            <suppressionFile>suppression.xml</suppressionFile>
+          </suppressionFiles>
+        </configuration>
+      </plugin>
+
+      <!-- Maven Versions Plugin for dependency management -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>versions-maven-plugin</artifactId>
+        <version>2.16.2</version>
+        <configuration>
+          <generateBackupPoms>false</generateBackupPoms>
+        </configuration>
+      </plugin>
+
+      <!-- Maven License Plugin for license compliance -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>license-maven-plugin</artifactId>
+        <version>2.2.0</version>
+        <configuration>
+          <verbose>false</verbose>
+          <addSvnKeywords>false</addSvnKeywords>
+          <organizationName>The Dignified Company</organizationName>
+          <inceptionYear>2024</inceptionYear>
+        </configuration>
+      </plugin>
+
       <!-- Spring Boot Actuator displays build-related information if a git.properties file is
       present at the classpath -->
       <plugin>

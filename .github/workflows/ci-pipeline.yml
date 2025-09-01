@@ -71,17 +71,20 @@ jobs:
           EOF
           fi
 
-      - name: Run OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'Spring PetClinic'
-          path: '.'
-          format: 'SARIF'
-          out: 'dependency-check-report.sarif'
-          args: |
-            --failOnCVSS 7
-            --enableRetired
-            --suppression suppression.xml
+      - name: Run OWASP Dependency Check via Maven
+        run: |
+          # Run dependency check using the Maven plugin
+          ./mvnw dependency-check:check
+          echo "✅ Dependency check completed via Maven plugin"
+          
+          # Copy the SARIF file to the root directory for easier access
+          if [ -f "target/dependency-check-report.sarif" ]; then
+            cp target/dependency-check-report.sarif .
+            echo "✅ SARIF report copied to root directory"
+          else
+            echo "⚠️ SARIF report not found in target directory"
+            ls -la target/
+          fi
 
       - name: Check if dependency check report exists
         run: |

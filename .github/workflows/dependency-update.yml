@@ -35,7 +35,7 @@ jobs:
       - name: Check for security vulnerabilities
         run: |
           echo "Checking for security vulnerabilities..."
-          ./mvnw org.owasp:dependency-check-maven:check
+          ./mvnw dependency-check:check
 
   update-dependencies:
     name: Update Dependencies
@@ -117,7 +117,7 @@ jobs:
       - name: Run security scan
         run: |
           echo "Running security scan after dependency update..."
-          ./mvnw org.owasp:dependency-check-maven:check
+          ./mvnw dependency-check:check
 
       - name: Generate SBOM
         run: ./mvnw cyclonedx:makeAggregateBom
