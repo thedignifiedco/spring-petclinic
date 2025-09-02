@@ -561,20 +561,7 @@ jobs:
             target/site/jacoco/
           retention-days: 30
 
-      - name: Checkstyle Summary
-        if: always()
-        run: |
-          echo "## 📊 Checkstyle Quality Report" >> $GITHUB_STEP_SUMMARY
-          if [ -f "target/checkstyle-result.xml" ]; then
-            echo "✅ **Checkstyle report generated successfully**" >> $GITHUB_STEP_SUMMARY
-            echo "- Report: checkstyle-result.xml" >> $GITHUB_STEP_SUMMARY
-            echo "- Status: Quality issues found (non-blocking)" >> $GITHUB_STEP_SUMMARY
-            echo "- Action: Review violations in the uploaded artifact" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **Checkstyle report not generated**" >> $GITHUB_STEP_SUMMARY
-            echo "- Status: Unable to generate report" >> $GITHUB_STEP_SUMMARY
-            echo "- Action: Check Maven configuration" >> $GITHUB_STEP_SUMMARY
-          fi
+
 
   quality-gates:
     name: Quality Gates
