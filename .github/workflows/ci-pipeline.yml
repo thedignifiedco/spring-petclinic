@@ -152,8 +152,10 @@ jobs:
 
       - name: Install JFrog CLI
         run: |
-          echo "🔧 Installing JFrog CLI..."
-          curl -fL https://getcli.jfrog.io | sh
+          echo "🔧 Installing JFrog CLI (pinned version with audit-mvn)..."
+          JF_VERSION="2.67.3"
+          curl -fL "https://releases.jfrog.io/artifactory/jfrog-cli/v2/${JF_VERSION}/jfrog-cli-linux-amd64/jfrog" -o jfrog
+          chmod +x jfrog
           sudo mv jfrog /usr/local/bin/
           jfrog --version
 
@@ -187,34 +189,40 @@ jobs:
         run: |
           echo "📦 Generating SBOM for XRay analysis..."
           
-          # Generate CycloneDX SBOM
-          ./mvnw org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+          # Generate CycloneDX SBOM (plugin writes to target/bom.xml and target/bom.json)
+          ./mvnw -q org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
           
-          # Verify SBOM was created
-          if [ -f "target/cyclonedx.xml" ]; then
-            echo "✅ SBOM generated: target/cyclonedx.xml"
+          # Align expected filenames for downstream steps
+          if [ -f "target/bom.xml" ]; then
+            cp -f target/bom.xml target/cyclonedx.xml
+          fi
+          if [ -f "target/bom.json" ]; then
+            cp -f target/bom.json target/cyclonedx.json
+          fi
+          
+          # Verify SBOM presence after alignment
+          if [ -f "target/cyclonedx.xml" ] || [ -f "target/cyclonedx.json" ]; then
+            echo "✅ SBOM generated: $( [ -f target/cyclonedx.json ] && echo target/cyclonedx.json || echo target/cyclonedx.xml )"
           else
-            echo "⚠️ SBOM not found, creating minimal one"
+            echo "⚠️ SBOM not found, creating minimal one (XML)"
+            mkdir -p target
             cat > target/cyclonedx.xml << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
-          <bom xmlns="http://cyclonedx.org/schema/bom/1.4" version="1" serialNumber="urn:uuid:$(uuidgen)">
+          <bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1">
             <metadata>
               <timestamp>$(date -u +%Y-%m-%dT%H:%M:%SZ)</timestamp>
               <tools>
                 <tool>
-                  <vendor>JFrog</vendor>
-                  <name>XRay</name>
-                  <version>3.66.4</version>
+                  <vendor>CycloneDX</vendor>
+                  <name>Fallback</name>
+                  <version>1.0</version>
                 </tool>
               </tools>
-            </metadata>
-            <components>
-              <component type="library">
+              <component type="application">
                 <name>spring-petclinic</name>
-                <version>1.0.0</version>
-                <purl>pkg:maven/org.springframework.samples/spring-petclinic@1.0.0</purl>
+                <version>3.5.0-SNAPSHOT</version>
               </component>
-            </components>
+            </metadata>
           </bom>
           EOF
           fi
