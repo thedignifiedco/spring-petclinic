@@ -154,9 +154,13 @@ jobs:
         run: |
           echo "🔧 Installing JFrog CLI (pinned version with audit-mvn)..."
           JF_VERSION="2.67.3"
-          curl -fL "https://releases.jfrog.io/artifactory/jfrog-cli/v2/${JF_VERSION}/jfrog-cli-linux-amd64/jfrog" -o jfrog
-          chmod +x jfrog
-          sudo mv jfrog /usr/local/bin/
+          # Use official installer with version pin; installs to current dir by default
+          curl -fL https://install-cli.jfrog.io | sh -s $JF_VERSION
+          # Move into PATH if needed
+          if [ -f "jfrog" ]; then
+            chmod +x jfrog
+            sudo mv jfrog /usr/local/bin/
+          fi
           jfrog --version
 
       - name: Configure JFrog and XRay
