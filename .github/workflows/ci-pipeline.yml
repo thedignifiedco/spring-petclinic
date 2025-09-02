@@ -169,12 +169,22 @@ jobs:
           XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
         run: |
           echo "⚙️ Configuring JFrog CLI..."
-          jfrog c add petclinic-server \
-            --url "$XRAY_URL" \
+          if [ -z "$XRAY_URL" ] || [ -z "$XRAY_USERNAME" ] || [ -z "$XRAY_PASSWORD" ]; then
+            echo "❌ Missing XRAY_URL/XRAY_USERNAME/XRAY_PASSWORD secrets"
+            exit 1
+          fi
+          # Normalize URL (remove trailing slash)
+          XRAY_BASE=${XRAY_URL%/}
+          # Add/overwrite server configuration using password via stdin (more reliable)
+          printf "%s" "$XRAY_PASSWORD" | jfrog c add petclinic-server \
+            --url "$XRAY_BASE" \
             --user "$XRAY_USERNAME" \
-            --password "$XRAY_PASSWORD" \
+            --password-stdin \
             --interactive=false
-          echo "✅ JFrog config added (petclinic-server)"
+          jfrog c use petclinic-server
+          # Verify XRay connectivity
+          jfrog xr ping
+          echo "✅ JFrog config verified (XRay reachable)"
 
       - name: Generate SBOM for XRay
         run: |
@@ -212,22 +222,16 @@ jobs:
           EOF
           fi
 
+      - name: Package artifacts for XRay scan
+        run: |
+          echo "🏗️ Packaging project artifacts for XRay scan (skip tests)..."
+          ./mvnw -q -DskipTests package
+
       - name: Run XRay scan with JFrog CLI
-        env:
-          XRAY_URL: ${{ secrets.XRAY_URL }}
-          XRAY_USERNAME: ${{ secrets.XRAY_USERNAME }}
-          XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
         run: |
           echo "🔍 Running XRay security scan with JFrog CLI..."
-          
-          if [ -z "$XRAY_URL" ] || [ -z "$XRAY_USERNAME" ] || [ -z "$XRAY_PASSWORD" ]; then
-            echo "⚠️ XRay secrets not configured; skipping JFrog XRay scan"
-            exit 0
-          fi
-          
-          # Use JFrog CLI Xray scan (component/SBOM scan)
-          # Note: Using 'audit' which supports SBOM/file scanning in recent CLI versions
-          jfrog xr audit --spec <(echo '{"files": [{"pattern": "target/cyclonedx.xml"}]}') --format json > xray-results.json || {
+          # Scan the built artifacts directory; output JSON results
+          jfrog xr scan target --format json > xray-results.json || {
             echo "⚠️ JFrog XRay scan failed, but continuing with pipeline"
           }
 
