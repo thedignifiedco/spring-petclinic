@@ -396,8 +396,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Detect runner architecture
+        run: |
+          echo "🔍 Detecting runner architecture..."
+          echo "RUNNER_OS: $RUNNER_OS"
+          echo "RUNNER_ARCH: $RUNNER_ARCH"
+          echo "RUNNER_PLATFORM: $RUNNER_OS/$RUNNER_ARCH"
+          
+          # Set environment variables for later use
+          echo "RUNNER_PLATFORM=$RUNNER_OS/$RUNNER_ARCH" >> $GITHUB_ENV
+          
+          # Detect if this is macOS ARM64
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$RUNNER_ARCH" = "ARM64" ]; then
+            echo "🍎 Detected macOS ARM64 (Apple Silicon) runner"
+            echo "MACOS_ARM64=true" >> $GITHUB_ENV
+          else
+            echo "💻 Detected other platform: $RUNNER_OS/$RUNNER_ARCH"
+            echo "MACOS_ARM64=false" >> $GITHUB_ENV
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+          driver-opts: |
+            image=moby/buildkit:latest
 
 
 
@@ -437,7 +460,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -476,6 +499,30 @@ jobs:
             echo "✅ Docker image found: $MAIN_TAG"
             echo "IMAGE_EXISTS=true" >> $GITHUB_ENV
             echo "IMAGE_REF=$MAIN_TAG" >> $GITHUB_ENV
+            
+                      # Verify multi-platform support
+            echo "🔍 Verifying multi-platform support..."
+            if docker buildx imagetools inspect "$MAIN_TAG" > /dev/null 2>&1; then
+              echo "📋 Platform information:"
+              docker buildx imagetools inspect "$MAIN_TAG" --format "{{.Manifests[].Platform}}" 2>/dev/null || echo "Could not extract platform info"
+              
+              # Test platform-specific pulls
+              echo "🧪 Testing platform-specific image pulls..."
+              
+              # Test AMD64
+              if docker pull --platform linux/amd64 "$MAIN_TAG" > /dev/null 2>&1; then
+                echo "✅ AMD64 platform: Successfully pulled"
+              else
+                echo "⚠️ AMD64 platform: Pull failed"
+              fi
+              
+              # Test ARM64
+              if docker pull --platform linux/arm64 "$MAIN_TAG" > /dev/null 2>&1; then
+                echo "✅ ARM64 platform: Successfully pulled"
+              else
+                echo "⚠️ ARM64 platform: Pull failed"
+              fi
+            fi
           else
             echo "⚠️ Docker image not found"
             echo "IMAGE_EXISTS=false" >> $GITHUB_ENV
@@ -566,6 +613,26 @@ jobs:
             echo "This is non-blocking - pipeline continues"
           fi
 
+      - name: Platform compatibility information
+        if: always()
+        run: |
+          echo "## 🖥️ Platform Compatibility Information" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ env.MACOS_ARM64 }}" = "true" ]; then
+            echo "🍎 **Apple Silicon (M1/M2/M3) Users**:" >> $GITHUB_STEP_SUMMARY
+            echo "- Docker images are built for both linux/amd64 and linux/arm64" >> $GITHUB_STEP_SUMMARY
+            echo "- Use \`docker pull --platform linux/arm64\` for native performance" >> $GITHUB_STEP_SUMMARY
+            echo "- Use \`docker run --platform linux/amd64\` for x86 emulation" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "💻 **Other Platforms**:" >> $GITHUB_STEP_SUMMARY
+            echo "- Docker images support both linux/amd64 and linux/arm64" >> $GITHUB_STEP_SUMMARY
+            echo "- Choose platform based on your target deployment environment" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Available Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main" >> $GITHUB_STEP_SUMMARY
+
       - name: Build ARM64 version (Optional)
         if: always() && github.event.inputs.build_arm64 == 'true'
         run: |
@@ -578,9 +645,16 @@ jobs:
         run: |
           echo "## 🐳 Docker Build and Security Scan Summary" >> $GITHUB_STEP_SUMMARY
           
+          # Runner platform information
+          echo "🏃 **Runner Platform**: ${{ env.RUNNER_PLATFORM }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.MACOS_ARM64 }}" = "true" ]; then
+            echo "🍎 **Apple Silicon**: macOS ARM64 detected" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           # Docker build status
           if [ "${{ steps.build.conclusion }}" = "success" ]; then
             echo "✅ **Docker Build**: Completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **Docker Build**: Did not complete successfully" >> $GITHUB_STEP_SUMMARY
           fi
@@ -601,7 +675,7 @@ jobs:
           fi
           
           # SARIF upload status
-          if [ "${{ steps.upload-sarif.outputs.sarif-id }}" != "" ]; then
+          if [ "${{ env.IMAGE_EXISTS }}" = "true" ] && [ "${{ steps.upload-sarif.outputs.sarif-id }}" != "" ]; then
             echo "✅ **Security Upload**: SARIF uploaded to GitHub Security" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **Security Upload**: SARIF upload may have failed" >> $GITHUB_STEP_SUMMARY
