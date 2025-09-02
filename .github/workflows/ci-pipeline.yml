@@ -153,7 +153,7 @@ jobs:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         with:
-          version: 2.67.3
+          version: latest
 
       - name: Configure JFrog and XRay
         env:
