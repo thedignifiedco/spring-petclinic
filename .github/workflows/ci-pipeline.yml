@@ -817,7 +817,6 @@ jobs:
           languages: java
           source-root: .
           build-mode: manual
-          debug: true
 
       - name: Build for CodeQL
         run: |
@@ -829,12 +828,15 @@ jobs:
           # Generate additional build artifacts that CodeQL might need
           ./mvnw dependency:tree -q
           
+          # Verify build artifacts
+          echo "📁 Build artifacts verification:"
+          ls -la target/classes/ || echo "⚠️ No compiled classes found"
+          ls -la target/dependency/ || echo "⚠️ No dependency directory found"
+          
           echo "✅ Build completed for CodeQL analysis"
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-        with:
-          debug: true
         continue-on-error: true
 
       - name: Handle CodeQL results
@@ -856,6 +858,16 @@ jobs:
           else
             echo "⚠️ CodeQL SARIF results not found"
           fi
+          
+          # Additional debugging information
+          echo "🔧 Environment information:"
+          echo "PWD: $(pwd)"
+          echo "JAVA_HOME: $JAVA_HOME"
+          echo "PATH: $PATH"
+          
+          # Check for CodeQL artifacts
+          echo "📁 Checking for CodeQL artifacts:"
+          find . -name "*codeql*" -o -name "*.sarif" 2>/dev/null || echo "No CodeQL artifacts found"
           
           echo "📊 CodeQL analysis completed (status: ${{ job.status }})"
 
