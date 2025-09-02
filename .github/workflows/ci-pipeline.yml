@@ -226,10 +226,10 @@ jobs:
 
       - name: Run XRay scan with JFrog CLI
         run: |
-          echo "🔍 Running XRay security scan with JFrog CLI..."
-          # Scan the built artifacts directory; output JSON results
-          jfrog xr scan target --format json > xray-results.json || {
-            echo "⚠️ JFrog XRay scan failed, but continuing with pipeline"
+          echo "🔍 Running XRay security scan with JFrog CLI (audit Maven project)..."
+          # Use JFrog CLI audit for Maven project; output JSON results
+          jfrog audit --mvn --format json > xray-results.json || {
+            echo "⚠️ JFrog XRay audit failed, but continuing with pipeline"
           }
 
       - name: Generate XRay summary report
