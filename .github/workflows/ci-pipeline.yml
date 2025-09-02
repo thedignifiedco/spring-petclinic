@@ -169,10 +169,10 @@ jobs:
           fi
           # Normalize URL (remove trailing slash)
           JFROG_BASE=${JFROG_URL%/}
-          # Add/overwrite server configuration using access token via stdin
-          printf "%s" "$JFROG_ACCESS_TOKEN" | jfrog c add petclinic-server \
+          # Add/overwrite server configuration using access token flag (CLI v2)
+          jfrog c add petclinic-server \
             --url "$JFROG_BASE" \
-            --access-token-stdin \
+            --access-token "$JFROG_ACCESS_TOKEN" \
             --interactive=false
           jfrog c use petclinic-server
           # Verify XRay connectivity
