@@ -21,10 +21,6 @@ env:
   DOCKER_IMAGE: 'spring-petclinic'
   REGISTRY: 'ghcr.io'
   IMAGE_NAME: ${{ github.repository }}
-  # XRay configuration (optional - set these secrets if you have JFrog Artifactory)
-  XRAY_URL: ${{ secrets.XRAY_URL }}
-  XRAY_USERNAME: ${{ secrets.XRAY_USERNAME }}
-  XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
 
 jobs:
   security-scan:
@@ -137,12 +133,11 @@ jobs:
         run: |
           echo "🔍 Checking XRay configuration..."
           
-          if [ -z "${{ secrets.XRAY_URL }}" ] || [ -z "${{ secrets.XRAY_USERNAME }}" ] || [ -z "${{ secrets.XRAY_PASSWORD }}" ]; then
+          if [ -z "${{ secrets.JFROG_URL }}" ] || [ -z "${{ secrets.JFROG_ACCESS_TOKEN }}" ]; then
             echo "⚠️ XRay secrets not configured, skipping XRay scan"
             echo "To enable XRay scanning, add these secrets to your repository:"
-            echo "- XRAY_URL: Your JFrog Artifactory XRay URL"
-            echo "- XRAY_USERNAME: Your XRay username"
-            echo "- XRAY_PASSWORD: Your XRay password or API token"
+            echo "- JFROG_URL: Your JFrog base URL (e.g., https://your.jfrog.io)"
+            echo "- JFROG_ACCESS_TOKEN: Access token with Xray permissions"
             exit 0
           else
             echo "✅ XRay secrets configured, proceeding with scan"
@@ -164,22 +159,20 @@ jobs:
 
       - name: Configure JFrog and XRay
         env:
-          XRAY_URL: ${{ secrets.XRAY_URL }}
-          XRAY_USERNAME: ${{ secrets.XRAY_USERNAME }}
-          XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
+          JFROG_URL: ${{ secrets.JFROG_URL }}
+          JFROG_ACCESS_TOKEN: ${{ secrets.JFROG_ACCESS_TOKEN }}
         run: |
           echo "⚙️ Configuring JFrog CLI..."
-          if [ -z "$XRAY_URL" ] || [ -z "$XRAY_USERNAME" ] || [ -z "$XRAY_PASSWORD" ]; then
-            echo "❌ Missing XRAY_URL/XRAY_USERNAME/XRAY_PASSWORD secrets"
+          if [ -z "$JFROG_URL" ] || [ -z "$JFROG_ACCESS_TOKEN" ]; then
+            echo "❌ Missing JFROG_URL/JFROG_ACCESS_TOKEN secrets"
             exit 1
           fi
           # Normalize URL (remove trailing slash)
-          XRAY_BASE=${XRAY_URL%/}
-          # Add/overwrite server configuration using password via stdin (more reliable)
-          printf "%s" "$XRAY_PASSWORD" | jfrog c add petclinic-server \
-            --url "$XRAY_BASE" \
-            --user "$XRAY_USERNAME" \
-            --password-stdin \
+          JFROG_BASE=${JFROG_URL%/}
+          # Add/overwrite server configuration using access token via stdin
+          printf "%s" "$JFROG_ACCESS_TOKEN" | jfrog c add petclinic-server \
+            --url "$JFROG_BASE" \
+            --access-token-stdin \
             --interactive=false
           jfrog c use petclinic-server
           # Verify XRay connectivity
@@ -269,7 +262,7 @@ jobs:
             echo "## 🔍 XRay Security Scan Summary" > xray-summary.md
             echo "" >> xray-summary.md
             echo "**Status**: Scan failed or not completed" >> xray-summary.md
-            echo "**Action**: Check XRay configuration and logs" >> xray-summary.md
+            echo "**Action**: Ensure JFROG_URL/JFROG_ACCESS_TOKEN are set and valid; check logs" >> xray-summary.md
           fi
 
       - name: Upload XRay artifacts
