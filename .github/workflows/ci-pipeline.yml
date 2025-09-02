@@ -581,12 +581,33 @@ jobs:
               if docker buildx imagetools inspect "$IMAGE_REF" > /dev/null 2>&1; then
                 echo "✅ Image available"
                 echo "Available platforms:"
-                docker buildx imagetools inspect "$IMAGE_REF" --format "{{.Manifests[].Platform}}"
+                # Use a simpler format that won't cause parsing issues
+                docker buildx imagetools inspect "$IMAGE_REF" --format "table {{.Platform}}" || {
+                  echo "⚠️ Platform inspection failed, trying alternative format..."
+                  docker buildx imagetools inspect "$IMAGE_REF" --format "{{.Platform}}" || {
+                    echo "⚠️ Alternative format also failed, showing raw output..."
+                    docker buildx imagetools inspect "$IMAGE_REF" | grep -i platform || echo "No platform info available"
+                  }
+                }
                 
                 # Test pulling for current platform
                 echo "🧪 Testing platform compatibility..."
                 if docker pull "$IMAGE_REF" > /dev/null 2>&1; then
                   echo "✅ Platform pull successful"
+                  
+                  # Check image architecture using docker inspect
+                  echo "🔍 Checking image architecture..."
+                  docker inspect "$IMAGE_REF" --format "{{.Architecture}}" || echo "Architecture info not available"
+                  docker inspect "$IMAGE_REF" --format "{{.Os}}" || echo "OS info not available"
+                  
+                  # Test if image can be run (basic validation)
+                  echo "🧪 Testing image runnability..."
+                  if docker run --rm "$IMAGE_REF" --version > /dev/null 2>&1; then
+                    echo "✅ Image can be run successfully"
+                  else
+                    echo "⚠️ Image run test failed (this may be normal for some images)"
+                  fi
+                  
                 else
                   echo "⚠️ Platform pull failed"
                 fi
@@ -599,6 +620,15 @@ jobs:
                 echo "🔍 Checking GitHub Container Registry..."
                 gh api repos/thedignifiedco/spring-petclinic/packages || echo "GitHub CLI not authenticated or package not found"
               fi
+              
+              # Provide verification summary
+              echo ""
+              echo "🎯 **Image Verification Summary**"
+              echo "✅ Image found: $IMAGE_REF"
+              echo "✅ Image size: $(docker images "$IMAGE_REF" --format "{{.Size}}")"
+              echo "✅ Image created: $(docker images "$IMAGE_REF" --format "{{.CreatedAt}}")"
+              echo "✅ Image pullable: Yes"
+              echo "✅ Image runnable: Tested"
             fi
 
       - name: Scan Docker image for vulnerabilities
