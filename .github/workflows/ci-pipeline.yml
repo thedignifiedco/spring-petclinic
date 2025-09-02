@@ -399,9 +399,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Check Docker environment
+        run: |
+          echo "🔍 Checking Docker environment..."
+          echo "Docker version:"
+          docker version
+          echo ""
+          echo "Docker info:"
+          docker info
+          echo ""
+          echo "Buildx builders:"
+          docker buildx ls
+          echo ""
+          echo "Registry connectivity test:"
+          docker pull hello-world:latest || echo "⚠️ Docker pull test failed"
+
       - name: Validate Dockerfile
         run: |
           echo "🔍 Validating Dockerfile syntax..."
+          echo "Checking Dockerfile exists..."
+          ls -la Dockerfile || echo "❌ Dockerfile not found!"
+          
+          echo "Checking build context..."
+          echo "Files in current directory:"
+          ls -la | head -20
+          
+          echo "Validating Dockerfile syntax..."
           docker build --dry-run -f Dockerfile . || {
             echo "⚠️ Dockerfile validation failed, but continuing with build..."
           }
@@ -423,6 +446,20 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify registry authentication
+        run: |
+          echo "🔍 Verifying registry authentication..."
+          echo "Testing login to ${{ env.REGISTRY }}..."
+          
+          # Test if we can access the registry
+          if docker pull "${{ env.REGISTRY }}/hello-world:latest" > /dev/null 2>&1; then
+            echo "✅ Registry access verified"
+          else
+            echo "⚠️ Registry access test failed"
+            echo "Checking authentication status..."
+            docker login "${{ env.REGISTRY }}" --username "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}" || echo "Login failed"
+          fi
 
       - name: Extract metadata
         id: meta
@@ -475,9 +512,23 @@ jobs:
               echo "Image ID: ${{ steps.build.outputs.imageid }}"
               echo "BUILD_IMAGEID=${{ steps.build.outputs.imageid }}" >> $GITHUB_ENV
             fi
+            
+            # Check for other build outputs
+            echo "🔍 All build step outputs:"
+            echo "Conclusion: ${{ steps.build.conclusion }}"
+            echo "Status: ${{ steps.build.outputs }}"
+            echo "Digest: ${{ steps.build.outputs.digest }}"
+            echo "Image ID: ${{ steps.build.outputs.imageid }}"
+            echo "Tags: ${{ steps.build.outputs.tags }}"
+            
+            # Check if we can see the built image locally
+            echo "🔍 Checking for locally built images..."
+            docker images | grep "${{ env.IMAGE_NAME }}" || echo "No local images found"
+            
           else
             echo "❌ Docker build step failed"
             echo "Build conclusion: ${{ steps.build.conclusion }}"
+            echo "Build status: ${{ steps.build.outputs }}"
             echo "This job should fail if Docker build fails"
             exit 1
           fi
@@ -520,34 +571,35 @@ jobs:
           echo "IMAGE_EXISTS=$IMAGE_EXISTS" >> $GITHUB_ENV
           echo "IMAGE_REF=$IMAGE_REF" >> $GITHUB_ENV
           
-          # If image exists, show its details
-          if [ "$IMAGE_EXISTS" = "true" ]; then
-            echo "🔍 Image details:"
-            docker images "$IMAGE_REF" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
-            
-                      # Check platform support
-          echo "🔍 Checking platform support..."
-          if docker buildx imagetools inspect "$IMAGE_REF" > /dev/null 2>&1; then
-            echo "✅ Image available"
-            echo "Available platforms:"
-            docker buildx imagetools inspect "$IMAGE_REF" --format "{{.Manifests[].Platform}}"
-            
-            # Test pulling for current platform
-            echo "🧪 Testing platform compatibility..."
-            if docker pull "$IMAGE_REF" > /dev/null 2>&1; then
-              echo "✅ Platform pull successful"
-            else
-              echo "⚠️ Platform pull failed"
+                      # If image exists, show its details
+            if [ "$IMAGE_EXISTS" = "true" ]; then
+              echo "🔍 Image details:"
+              docker images "$IMAGE_REF" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+              
+              # Check platform support
+              echo "🔍 Checking platform support..."
+              if docker buildx imagetools inspect "$IMAGE_REF" > /dev/null 2>&1; then
+                echo "✅ Image available"
+                echo "Available platforms:"
+                docker buildx imagetools inspect "$IMAGE_REF" --format "{{.Manifests[].Platform}}"
+                
+                # Test pulling for current platform
+                echo "🧪 Testing platform compatibility..."
+                if docker pull "$IMAGE_REF" > /dev/null 2>&1; then
+                  echo "✅ Platform pull successful"
+                else
+                  echo "⚠️ Platform pull failed"
+                fi
+              else
+                echo "⚠️ Image inspection not available"
+              fi
+              
+              # Check registry using GitHub CLI if available
+              if command -v gh > /dev/null 2>&1; then
+                echo "🔍 Checking GitHub Container Registry..."
+                gh api repos/thedignifiedco/spring-petclinic/packages || echo "GitHub CLI not authenticated or package not found"
+              fi
             fi
-          else
-            echo "⚠️ Image inspection not available"
-          fi
-          
-          # Check registry using GitHub CLI if available
-          if command -v gh > /dev/null 2>&1; then
-            echo "🔍 Checking GitHub Container Registry..."
-            gh api repos/thedignifiedco/spring-petclinic/packages || echo "GitHub CLI not authenticated or package not found"
-          fi
 
       - name: Scan Docker image for vulnerabilities
         if: always() && env.IMAGE_EXISTS == 'true'
