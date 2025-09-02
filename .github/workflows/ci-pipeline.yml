@@ -150,18 +150,10 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Install JFrog CLI
-        run: |
-          echo "🔧 Installing JFrog CLI (pinned version with audit-mvn)..."
-          JF_VERSION="2.67.3"
-          # Use official installer with version pin; installs to current dir by default
-          curl -fL https://install-cli.jfrog.io | sh -s $JF_VERSION
-          # Move into PATH if needed
-          if [ -f "jfrog" ]; then
-            chmod +x jfrog
-            sudo mv jfrog /usr/local/bin/
-          fi
-          jfrog --version
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        with:
+          version: 2.67.3
 
       - name: Configure JFrog and XRay
         env:
@@ -176,14 +168,14 @@ jobs:
           # Normalize URL (remove trailing slash)
           JFROG_BASE=${JFROG_URL%/}
           # Add/overwrite server configuration using access token flag (CLI v2)
-          jfrog c add petclinic-server \
+          jf c add petclinic-server \
             --url "$JFROG_BASE" \
             --access-token "$JFROG_ACCESS_TOKEN" \
             --interactive=false
-          jfrog c use petclinic-server
+          jf c use petclinic-server
           # Verify Xray connectivity via API
           echo "🔎 Verifying Xray connectivity..."
-          if jfrog xr curl -X GET "/api/v1/system/ping" >/dev/null 2>&1; then
+          if jf xr curl -X GET "/api/v1/system/ping" >/dev/null 2>&1; then
             echo "✅ JFrog config verified (Xray reachable)"
           else
             echo "⚠️ Could not reach Xray ping endpoint; proceeding anyway"
@@ -239,8 +231,8 @@ jobs:
       - name: Run XRay scan with JFrog CLI
         run: |
           echo "🔍 Running XRay security scan with JFrog CLI (audit-mvn)..."
-          # Use JFrog CLI classic 'audit-mvn' command; output JSON results
-          jfrog audit-mvn --format json > xray-results.json || {
+          # Use JFrog CLI 'audit-mvn' command; output JSON results
+          jf audit-mvn --format json > xray-results.json || {
             echo "⚠️ JFrog XRay audit-mvn failed, but continuing with pipeline"
           }
 
