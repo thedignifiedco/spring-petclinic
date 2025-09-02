@@ -289,8 +289,8 @@ jobs:
             echo "- **Artifacts**: Available in workflow artifacts" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **XRay Scan**: Not completed" >> $GITHUB_STEP_SUMMARY
-            echo "- **Action**: Configure XRay secrets or check logs" >> $GITHUB_STEP_SUMMARY
-            echo "- **Setup**: Add XRAY_URL, XRAY_USERNAME, and XRAY_PASSWORD secrets" >> $GITHUB_STEP_SUMMARY
+            echo "- **Action**: Configure JFROG_URL/JFROG_ACCESS_TOKEN or check logs" >> $GITHUB_STEP_SUMMARY
+            echo "- **Setup**: Add JFROG_URL and JFROG_ACCESS_TOKEN secrets" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Create XRay placeholder if not configured
@@ -299,7 +299,7 @@ jobs:
           echo "📝 Creating XRay placeholder report..."
           
           # Check if XRay is configured
-          if [ -z "${{ secrets.XRAY_URL }}" ] || [ -z "${{ secrets.XRAY_USERNAME }}" ] || [ -z "${{ secrets.XRAY_PASSWORD }}" ]; then
+          if [ -z "${{ secrets.JFROG_URL }}" ] || [ -z "${{ secrets.JFROG_ACCESS_TOKEN }}" ]; then
             echo "⚠️ XRay not configured, creating placeholder reports"
             
             # Create placeholder JSON report
@@ -310,9 +310,8 @@ jobs:
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "setup_required": {
               "secrets": [
-                "XRAY_URL",
-                "XRAY_USERNAME", 
-                "XRAY_PASSWORD"
+                "JFROG_URL",
+                "JFROG_ACCESS_TOKEN"
               ],
               "description": "JFrog Artifactory XRay credentials required for security scanning"
             },
@@ -332,9 +331,8 @@ jobs:
           ## Setup Required
           To enable XRay security scanning, add these secrets to your repository:
           
-          - **XRAY_URL**: Your JFrog Artifactory XRay URL
-          - **XRAY_USERNAME**: Your XRay username  
-          - **XRAY_PASSWORD**: Your XRay password or API token
+          - **JFROG_URL**: Your JFrog base URL (e.g., https://your.jfrog.io)
+          - **JFROG_ACCESS_TOKEN**: Access token with Xray permissions
           
           ## Benefits
           XRay provides:
