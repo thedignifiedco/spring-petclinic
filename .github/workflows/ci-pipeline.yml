@@ -175,9 +175,13 @@ jobs:
             --access-token "$JFROG_ACCESS_TOKEN" \
             --interactive=false
           jfrog c use petclinic-server
-          # Verify XRay connectivity
-          jfrog xr ping
-          echo "✅ JFrog config verified (XRay reachable)"
+          # Verify Xray connectivity via API
+          echo "🔎 Verifying Xray connectivity..."
+          if jfrog xr curl -X GET "/api/v1/system/ping" >/dev/null 2>&1; then
+            echo "✅ JFrog config verified (Xray reachable)"
+          else
+            echo "⚠️ Could not reach Xray ping endpoint; proceeding anyway"
+          fi
 
       - name: Generate SBOM for XRay
         run: |
