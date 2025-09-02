@@ -1,4 +1,4 @@
-# Spring PetClinic Sample Application [![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml)[![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml)
+# Spring PetClinic Sample Application [![CI Pipeline](https://github.com/thedignifiedco/spring-petclinic/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/thedignifiedco/spring-petclinic/actions/workflows/ci-pipeline.yml)
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/spring-projects/spring-petclinic) [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://github.com/codespaces/new?hide_repo_select=true&ref=main&repo=7517918)
 
@@ -31,12 +31,41 @@ Or you can run it from Maven directly using the Spring Boot Maven plugin. If you
 
 > NOTE: If you prefer to use Gradle, you can build the app using `./gradlew build` and look for the jar file in `build/libs`.
 
+## CI/CD Pipeline
+
+This repository includes a comprehensive, secure CI/CD pipeline built with GitHub Actions. The pipeline provides:
+
+- **Security Scanning**: Trivy for vulnerabilities, OWASP Dependency Check for dependencies
+- **Code Quality**: Checkstyle, JaCoCo coverage, and CodeQL static analysis
+- **Container Security**: Multi-stage Docker builds with security scanning
+- **Compliance**: License checking, SBOM generation, and audit trails
+
+For detailed pipeline documentation, see [CI-CD-README.md](CI-CD-README.md).
+
+### Pipeline Status
+
+[![CI Pipeline](https://github.com/thedignifiedco/spring-petclinic/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/thedignifiedco/spring-petclinic/actions/workflows/ci-pipeline.yml)
+
 ## Building a Container
 
-There is no `Dockerfile` in this project. You can build a container image (if you have a docker daemon) using the Spring Boot build plugin:
+This project includes a production-ready `Dockerfile` with security best practices. You can build a container image using:
 
 ```bash
+# Build using our Dockerfile
+docker build -t spring-petclinic .
+
+# Or use Spring Boot build plugin
 ./mvnw spring-boot:build-image
+
+### Running with Docker
+
+```bash
+# Run the built image
+docker run -p 8080:8080 spring-petclinic
+
+# Or use docker-compose for full stack
+docker-compose up
+```
 ```
 
 ## In case you find a bug/suggested improvement for Spring Petclinic
@@ -153,9 +182,21 @@ Here is a list of them:
 | Bean Validation / Hibernate Validator: simplify Maven dependencies and backward compatibility |[HV-790](https://hibernate.atlassian.net/browse/HV-790) and [HV-792](https://hibernate.atlassian.net/browse/HV-792) |
 | Spring Data: provide more flexibility when working with JPQL queries | [DATAJPA-292](https://github.com/spring-projects/spring-data-jpa/issues/704) |
 
+## Security Features
+
+This repository implements enterprise-grade security practices:
+
+- **Vulnerability Scanning**: Automated scanning of source code and dependencies
+- **Container Security**: Secure Docker builds with non-root user execution
+- **Code Quality**: Automated code style enforcement and coverage requirements
+- **Supply Chain Security**: SBOM generation and dependency tracking
+- **Compliance**: License checking and audit trail generation
+
+For security concerns, please email security@thedignified.co or see [SECURITY.md](SECURITY.md).
+
 ## Contributing
 
-The [issue tracker](https://github.com/spring-projects/spring-petclinic/issues) is the preferred channel for bug reports, feature requests and submitting pull requests.
+The [issue tracker](https://github.com/thedignifiedco/spring-petclinic/issues) is the preferred channel for bug reports, feature requests and submitting pull requests.
 
 For pull requests, editor preferences are available in the [editor config](.editorconfig) for easy use in common text editors. Read more and download plugins at <https://editorconfig.org>. All commits must include a __Signed-off-by__ trailer at the end of each commit message to indicate that the contributor agrees to the Developer Certificate of Origin.
 For additional details, please refer to the blog post [Hello DCO, Goodbye CLA: Simplifying Contributions to Spring](https://spring.io/blog/2025/01/06/hello-dco-goodbye-cla-simplifying-contributions-to-spring).

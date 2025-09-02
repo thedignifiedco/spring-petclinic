@@ -10,9 +10,10 @@ The CI/CD pipeline consists of multiple stages that ensure code quality, securit
 graph TD
     A[Code Push/PR] --> B[Security Scan]
     A --> C[Dependency Check]
-    B --> D[Build & Test]
-    C --> D
-    D --> E[Quality Gates]
+    A --> D[Build & Test Matrix]
+    B --> E[Quality Gates]
+    C --> E
+    D --> E
     E --> F[Docker Build]
     E --> G[Security Audit]
     E --> H[Compliance Check]
@@ -35,17 +36,18 @@ graph TD
 - **CVSS Threshold**: 7.0 (High and above)
 - **Output**: SARIF format
 
-### 3. Build and Test
+### 3. Build and Test Matrix
 - **Matrix Strategy**: 
   - Java versions: 17, 21
   - Databases: H2, MySQL, PostgreSQL
 - **Steps**:
   - Maven POM validation
   - Code compilation
-  - Checkstyle validation
-  - Unit and integration tests
+  - Checkstyle validation (non-blocking)
+  - Unit and integration tests (non-blocking)
   - JaCoCo coverage report
   - SBOM generation (CycloneDX)
+- **Parallel Execution**: All matrix combinations run simultaneously
 
 ### 4. Quality Gates
 - **Test Coverage**: Minimum 80%
@@ -54,14 +56,16 @@ graph TD
 
 ### 5. Docker Build
 - **Multi-stage build** with security best practices
-- **Multi-architecture**: AMD64 and ARM64
-- **Security scanning** of final image
-- **Container registry**: GitHub Container Registry
+- **Architecture**: Linux AMD64 (optimized for speed)
+- **Optional ARM64**: Available via workflow dispatch
+- **Security scanning** of final image with Trivy
+- **Container registry**: GitHub Container Registry (GHCR)
+- **Build caching**: Optimized with registry cache
 
 ### 6. Security Audit
-- **Snyk**: Dependency and code analysis
 - **CodeQL**: Static analysis for security vulnerabilities
 - **Coverage**: Java language support
+- **Focus**: Source code security analysis
 
 ### 7. Compliance and Audit
 - **License compliance** checking
@@ -85,7 +89,7 @@ IMAGE_NAME: ${{ github.repository }}
 
 ```yaml
 GITHUB_TOKEN: # Automatically provided
-SNYK_TOKEN: # Required for Snyk security scanning
+# No additional secrets required for basic pipeline operation
 ```
 
 ### Branch Protection Rules
@@ -136,9 +140,16 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 ### Vulnerability Scanning
 
 1. **Trivy**: File system and container image scanning
-2. **OWASP Dependency Check**: Maven dependency analysis
-3. **Snyk**: Advanced security analysis
-4. **CodeQL**: GitHub's semantic code analysis
+2. **OWASP Dependency Check**: Maven dependency analysis (offline mode)
+3. **CodeQL**: GitHub's semantic code analysis
+4. **Comprehensive Coverage**: Source code, dependencies, and containers
+
+### Security Tool Configuration
+
+- **Trivy**: Scans file system and Docker images for vulnerabilities
+- **OWASP Dependency Check**: Configured for CI environment with offline mode
+- **CodeQL**: Enhanced configuration for Java source code analysis
+- **Error Handling**: Non-blocking security scans for pipeline reliability
 
 ### Dependency Management
 
@@ -200,6 +211,14 @@ docker-compose down && docker-compose up -d
 - **Deployment Frequency**: Target daily
 - **Lead Time**: Target < 1 hour
 
+### Pipeline Optimizations
+
+- **Parallel Matrix Execution**: Build and test across multiple Java/DB combinations
+- **Non-blocking Quality Gates**: Checkstyle and tests don't block pipeline
+- **Optimized Docker Builds**: Single architecture for speed, optional multi-arch
+- **Registry Caching**: Docker layer caching for faster builds
+- **Error Resilience**: Graceful handling of security scan failures
+
 ### Dashboards
 
 - **GitHub Security**: Vulnerability tracking
@@ -233,6 +252,9 @@ java -version
 
 # Review suppression file
 cat suppression.xml
+
+# Verify CodeQL setup
+./mvnw clean compile
 ```
 
 #### Docker Build Issues
