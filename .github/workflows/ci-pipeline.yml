@@ -155,34 +155,26 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Install XRay CLI
+      - name: Install JFrog CLI
         run: |
-          echo "🔧 Installing XRay CLI..."
-          
-          # Download XRay CLI for Linux
-          XRAY_VERSION="3.66.4"
-          curl -L -o xray-cli.tar.gz "https://releases.jfrog.io/artifactory/jfrog-xray/xray-cli/${XRAY_VERSION}/xray-cli-linux-amd64.tar.gz"
-          
-          # Extract and install
-          tar -xzf xray-cli.tar.gz
-          sudo mv xray /usr/local/bin/
-          chmod +x /usr/local/bin/xray
-          
-          # Verify installation
-          xray --version
-          
-          # Clean up
-          rm xray-cli.tar.gz
+          echo "🔧 Installing JFrog CLI..."
+          curl -fL https://getcli.jfrog.io | sh
+          sudo mv jfrog /usr/local/bin/
+          jfrog --version
 
-      - name: Configure XRay
+      - name: Configure JFrog and XRay
+        env:
+          XRAY_URL: ${{ secrets.XRAY_URL }}
+          XRAY_USERNAME: ${{ secrets.XRAY_USERNAME }}
+          XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
         run: |
-          echo "⚙️ Configuring XRay..."
-          
-          # Set XRay configuration
-          xray config add --url "${{ env.XRAY_URL }}" --user "${{ env.XRAY_USERNAME }}" --password "${{ env.XRAY_PASSWORD }}" --name "github-actions"
-          
-          # Test connection
-          xray ping
+          echo "⚙️ Configuring JFrog CLI..."
+          jfrog c add petclinic-server \
+            --url "$XRAY_URL" \
+            --user "$XRAY_USERNAME" \
+            --password "$XRAY_PASSWORD" \
+            --interactive=false
+          echo "✅ JFrog config added (petclinic-server)"
 
       - name: Generate SBOM for XRay
         run: |
@@ -220,13 +212,23 @@ jobs:
           EOF
           fi
 
-      - name: Run XRay scan
+      - name: Run XRay scan with JFrog CLI
+        env:
+          XRAY_URL: ${{ secrets.XRAY_URL }}
+          XRAY_USERNAME: ${{ secrets.XRAY_USERNAME }}
+          XRAY_PASSWORD: ${{ secrets.XRAY_PASSWORD }}
         run: |
-          echo "🔍 Running XRay security scan..."
+          echo "🔍 Running XRay security scan with JFrog CLI..."
           
-          # Run XRay scan on the SBOM
-          xray scan --format json --output xray-results.json target/cyclonedx.xml || {
-            echo "⚠️ XRay scan failed, but continuing with pipeline"
+          if [ -z "$XRAY_URL" ] || [ -z "$XRAY_USERNAME" ] || [ -z "$XRAY_PASSWORD" ]; then
+            echo "⚠️ XRay secrets not configured; skipping JFrog XRay scan"
+            exit 0
+          fi
+          
+          # Use JFrog CLI Xray scan (component/SBOM scan)
+          # Note: Using 'audit' which supports SBOM/file scanning in recent CLI versions
+          jfrog xr audit --spec <(echo '{"files": [{"pattern": "target/cyclonedx.xml"}]}') --format json > xray-results.json || {
+            echo "⚠️ JFrog XRay scan failed, but continuing with pipeline"
           }
 
       - name: Generate XRay summary report
