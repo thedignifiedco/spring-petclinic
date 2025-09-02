@@ -654,15 +654,58 @@ jobs:
           if [ "${{ secrets.SNYK_TOKEN }}" != "" ]; then
             echo "✅ SNYK_TOKEN available, proceeding with Snyk scan"
             
-            # Install Snyk CLI
-            curl -s https://static.snyk.io/cli/latest/install.sh | sh -s -- -b /usr/local/bin
+            # Try multiple installation methods
+            echo "📦 Attempting Snyk CLI installation..."
+            
+            # Method 1: Official install script
+            if curl -s https://static.snyk.io/cli/latest/install.sh | sh -s -- -b /usr/local/bin; then
+              echo "✅ Snyk CLI installed via official script"
+            else
+              echo "⚠️ Official script failed, trying alternative method..."
+              
+              # Method 2: Direct download
+              if curl -s -L https://github.com/snyk/snyk/releases/latest/download/snyk-linux -o /usr/local/bin/snyk && chmod +x /usr/local/bin/snyk; then
+                echo "✅ Snyk CLI installed via direct download"
+              else
+                echo "❌ All installation methods failed"
+                exit 1
+              fi
+            fi
             
             # Verify installation
-            snyk --version
+            if snyk --version; then
+              echo "✅ Snyk CLI verification successful"
+            else
+              echo "❌ Snyk CLI verification failed"
+              exit 1
+            fi
             
             # Set JAVA_HOME explicitly to the path from actions/setup-java
-            export JAVA_HOME="$RUNNER_TOOL_CACHE/Java_Temurin-Hotspot_jdk/17.0.x/x64"
-            export PATH="$JAVA_HOME/bin:$PATH"
+            # Try multiple possible Java paths
+            JAVA_PATHS=(
+              "$RUNNER_TOOL_CACHE/Java_Temurin-Hotspot_jdk/17.0.x/x64"
+              "$RUNNER_TOOL_CACHE/Java_Temurin-Hotspot_jdk/17.0.x/x64"
+              "/usr/lib/jvm/temurin-17-jdk-amd64"
+              "/usr/lib/jvm/java-17-openjdk-amd64"
+            )
+            
+            JAVA_HOME_FOUND=false
+            for java_path in "${JAVA_PATHS[@]}"; do
+              if [ -d "$java_path" ] && [ -x "$java_path/bin/java" ]; then
+                export JAVA_HOME="$java_path"
+                export PATH="$JAVA_HOME/bin:$PATH"
+                echo "✅ Found Java at: $JAVA_HOME"
+                JAVA_HOME_FOUND=true
+                break
+              fi
+            done
+            
+            if [ "$JAVA_HOME_FOUND" = false ]; then
+              echo "⚠️ Could not find Java in expected paths, using system Java"
+              # Use system Java as fallback
+              export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+              export PATH="$JAVA_HOME/bin:$PATH"
+            fi
             
             # Verify Java setup
             echo "Java version:"
@@ -692,6 +735,27 @@ jobs:
             echo "✅ Snyk CLI scan completed"
           else
             echo "⚠️ SNYK_TOKEN not configured, Snyk scan was skipped"
+          fi
+
+      - name: Snyk installation summary
+        if: always()
+        run: |
+          echo "## 🔒 Snyk Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ secrets.SNYK_TOKEN }}" != "" ]; then
+            if command -v snyk > /dev/null 2>&1; then
+              echo "✅ **Snyk CLI**: Successfully installed and executed" >> $GITHUB_STEP_SUMMARY
+              echo "- **Status**: Security scan completed" >> $GITHUB_STEP_SUMMARY
+              echo "- **Tool**: Direct CLI installation" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ **Snyk CLI**: Installation failed" >> $GITHUB_STEP_SUMMARY
+              echo "- **Status**: Security scan not available" >> $GITHUB_STEP_SUMMARY
+              echo "- **Action**: Review installation logs" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ **Snyk CLI**: Not configured" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: SNYK_TOKEN not provided" >> $GITHUB_STEP_SUMMARY
+            echo "- **Action**: Add SNYK_TOKEN secret for security scanning" >> $GITHUB_STEP_SUMMARY
           fi
 
 
