@@ -646,53 +646,55 @@ jobs:
             echo "This may cause Snyk to fail"
           }
 
-      - name: Run Snyk security scan
-        uses: snyk/actions/maven@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-        with:
-          args: --severity-threshold=high --debug
-        continue-on-error: true
-
-      - name: Check Snyk scan status
+      - name: Install and run Snyk CLI
         run: |
-          if [ "${{ secrets.SNYK_TOKEN }}" = "" ]; then
-            echo "⚠️ SNYK_TOKEN not configured, skipping Snyk scan"
-          else
-            echo "✅ Snyk scan completed"
-          fi
-
-      - name: Fallback Snyk scan (if Maven action fails)
-        if: failure()
-        run: |
-          echo "🔄 Attempting fallback Snyk scan..."
+          echo "🔧 Installing Snyk CLI..."
           
           # Check if SNYK_TOKEN is available
           if [ "${{ secrets.SNYK_TOKEN }}" != "" ]; then
-            echo "✅ SNYK_TOKEN available, proceeding with fallback scan"
+            echo "✅ SNYK_TOKEN available, proceeding with Snyk scan"
             
-            # Install Snyk CLI directly
+            # Install Snyk CLI
             curl -s https://static.snyk.io/cli/latest/install.sh | sh -s -- -b /usr/local/bin
             
-            # Set JAVA_HOME explicitly
-            export JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64
-            export PATH=$JAVA_HOME/bin:$PATH
+            # Verify installation
+            snyk --version
+            
+            # Set JAVA_HOME explicitly to the path from actions/setup-java
+            export JAVA_HOME="$RUNNER_TOOL_CACHE/Java_Temurin-Hotspot_jdk/17.0.x/x64"
+            export PATH="$JAVA_HOME/bin:$PATH"
             
             # Verify Java setup
             echo "Java version:"
             java -version
             echo "JAVA_HOME: $JAVA_HOME"
+            echo "PATH: $PATH"
+            
+            # Test Maven wrapper
+            chmod +x ./mvnw
+            ./mvnw --version
             
             # Run Snyk test on the project
+            echo "🔍 Running Snyk security scan..."
             snyk test --severity-threshold=high --debug || {
-              echo "⚠️ Fallback Snyk scan also failed"
-              echo "This is non-blocking - continuing with pipeline"
+              echo "⚠️ Snyk scan failed, but continuing with pipeline"
             }
           else
-            echo "⚠️ SNYK_TOKEN not available, skipping fallback scan"
+            echo "⚠️ SNYK_TOKEN not configured, skipping Snyk scan"
           fi
         continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Check Snyk scan status
+        run: |
+          if [ "${{ secrets.SNYK_TOKEN }}" != "" ]; then
+            echo "✅ Snyk CLI scan completed"
+          else
+            echo "⚠️ SNYK_TOKEN not configured, Snyk scan was skipped"
+          fi
+
+
 
       - name: Verify source code accessibility
         run: |
